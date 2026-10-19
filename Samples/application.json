@@ -1,0 +1,15 @@
+{
+  "server": {
+    "host": "localhost",
+    "port": 8080,
+    "enabled": true
+  },
+  "security": {
+    "token": "sample-key",
+    "timeout": 3000
+  },
+  "devices": [
+    { "name": "Receiver-A", "active": true },
+    { "name": "Receiver-B", "active": false }
+  ]
+}

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>InerConfig</AssemblyName>
+    <Version>0.1.0</Version>
+    <ApplicationIcon>Assets/Icon/InerConfig.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup><PackageReference Include="YamlDotNet" Version="18.1.0" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets/Fonts/Pretendard-Regular.ttf" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets/ViewExamples/*.png" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets/Icon/InerConfig.ico" /><Resource Include="Assets/Icon/InerConfig-64.png" /></ItemGroup>
+  <ItemGroup><Content Include="Python/**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+</Project>
+
+
+
+
+

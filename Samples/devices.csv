@@ -1,0 +1,3 @@
+name,host,port,token
+Receiver-A,localhost,08080,sample-key-a
+Receiver-B,localhost,08081,sample-key-b

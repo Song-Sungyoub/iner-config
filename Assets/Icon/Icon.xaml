@@ -1,0 +1,14 @@
+<Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Width="256" Height="256">
+ <Canvas Width="256" Height="256">
+  <Rectangle Canvas.Left="12" Canvas.Top="12" Width="232" Height="232" RadiusX="54" RadiusY="54" Stroke="#5086EF" StrokeThickness="2">
+   <Rectangle.Fill><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#408CF4" Offset="0"/><GradientStop Color="#225BCB" Offset="0.55"/><GradientStop Color="#193F9B" Offset="1"/></LinearGradientBrush></Rectangle.Fill>
+  </Rectangle>
+  <Path Data="M 65,80 L 65,174 Q 65,181 72,181 L 91,181 M 65,132 L 91,132" Stroke="#B8D9FF" StrokeThickness="10" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+  <Rectangle Canvas.Left="50" Canvas.Top="58" Width="30" Height="30" RadiusX="9" RadiusY="9" Fill="White"/>
+  <Rectangle Canvas.Left="101" Canvas.Top="63" Width="98" Height="20" RadiusX="10" RadiusY="10" Fill="White"/>
+  <Rectangle Canvas.Left="101" Canvas.Top="119" Width="27" Height="26" RadiusX="8" RadiusY="8" Fill="#C5DEFF"/>
+  <Rectangle Canvas.Left="140" Canvas.Top="119" Width="59" Height="26" RadiusX="8" RadiusY="8" Fill="#77E8D1"/>
+  <Rectangle Canvas.Left="101" Canvas.Top="168" Width="27" Height="26" RadiusX="8" RadiusY="8" Fill="#C5DEFF"/>
+  <Rectangle Canvas.Left="140" Canvas.Top="168" Width="59" Height="26" RadiusX="8" RadiusY="8" Fill="White"/>
+ </Canvas>
+</Viewbox>

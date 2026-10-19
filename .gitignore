@@ -1,0 +1,11 @@
+bin/
+obj/
+dist/
+*.bak
+self-test-*.txt
+artifacts/
+.vs/
+*.user
+*.suo
+.env
+.env.*
