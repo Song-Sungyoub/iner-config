@@ -11,6 +11,7 @@ public static class SelfTest
     public static void Run(string[]? packages = null)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        ExternalChangesTest.Run();
         KeyboardStructureTest.Run();Count+=KeyboardStructureTest.Count;
         FileSession.ValidateFileSize(FileSession.MaxFileBytes);
         Reject(()=>FileSession.ValidateFileSize(10L*1024*1024*1024),"10 GiB rejected before allocation");

@@ -80,15 +80,15 @@ public sealed partial class FileSession : INotifyPropertyChanged
         Bom=name is "UTF-16 LE" or "UTF-8 BOM"?Encoding.GetPreamble():[];
         encodingChanged=true;Notify();
     }
-    public void Save(string path)
+    public void Save(string path,byte[]? expectedDiskHash=null)
     {
         if(Input!=null)throw new InvalidOperationException("미적용 입력을 먼저 복원하거나 취소하세요.");
         if(Draft!=null)throw new InvalidOperationException("추가 초안을 먼저 확정하세요.");
         string before=Text;
-        try{if(PendingDeletes.Count>0)Text=WithPendingDeletes();SaveCore(path);PendingDeletes.Clear();}
+        try{if(PendingDeletes.Count>0)Text=WithPendingDeletes();SaveCore(path,expectedDiskHash);PendingDeletes.Clear();}
         catch{SessionBackups.Preserve(path);Text=before;throw;}
     }
-    private void SaveCore(string path)
+    private void SaveCore(string path,byte[]? expectedDiskHash)
     {
         _=new ConfigDocument(Text,Format,Separator);
         if(Format=="XML")
@@ -101,7 +101,7 @@ public sealed partial class FileSession : INotifyPropertyChanged
             }
         }
         string full=Path.GetFullPath(path);bool same=string.Equals(full,FilePath,StringComparison.OrdinalIgnoreCase);
-        if(same&&diskHash!=null&&(!File.Exists(full)||!SHA256.HashData(File.ReadAllBytes(full)).SequenceEqual(diskHash)))throw new IOException("외부에서 파일이 변경되거나 삭제되었습니다. 다른 이름으로 저장하거나 파일을 다시 여세요.");
+        if(same&&diskHash!=null&&!ReadDiskHash(full).SequenceEqual(expectedDiskHash??diskHash))throw new IOException("외부에서 파일이 변경되거나 삭제되었습니다. 다른 이름으로 저장하거나 파일을 다시 여세요.");
         byte[] payload=Encoding.GetBytes(Text),bytes=[..Bom,..payload];
         if(same&&diskHash!=null&&SHA256.HashData(bytes).SequenceEqual(diskHash)){SavedText=Text;encodingChanged=false;Notify();return;}
         string temp=Path.Combine(Path.GetDirectoryName(full)!,"."+Path.GetFileName(full)+"."+Guid.NewGuid().ToString("N")+".tmp");

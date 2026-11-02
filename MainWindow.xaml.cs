@@ -54,7 +54,7 @@ public partial class MainWindow : Window
     private readonly string themeFile=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"InerConfig","theme.txt");
     public MainWindow()
     {
-        InitializeComponent();Tree.LoadingRow+=(_,e)=>{RowHover.Attach(e.Row);if(e.Row.Item is ConfigNode node)AttachMove(e.Row,node);};Csv.LoadingRow+=(_,e)=>RowHover.Attach(e.Row);InitializeCsvEditing();Files.ItemsSource=sessions;LoadView();InitializeRecovery();InitializeInline();
+        InitializeComponent();Tree.LoadingRow+=(_,e)=>{RowHover.Attach(e.Row);if(e.Row.Item is ConfigNode node)AttachMove(e.Row,node);};Csv.LoadingRow+=(_,e)=>RowHover.Attach(e.Row);InitializeCsvEditing();Files.ItemsSource=sessions;LoadView();InitializeRecovery();InitializeInline();InitializeExternalChanges();
         Activated += (_, _) => ((App)Application.Current).ActiveEditor = this;
         Closed += (_, _) => { parseTimer.Stop(); revision++; };
         parseTimer.Tick+=async(_,_)=>{parseTimer.Stop();await Parse();};
@@ -101,13 +101,28 @@ public partial class MainWindow : Window
     private async void TabChanged(object sender,SelectionChangedEventArgs e)
     {
         if(e.Source!=Files)return;EndInline(false);inlinePath=null;addPopup?.SetCurrentValue(System.Windows.Controls.Primitives.Popup.IsOpenProperty,false);
-        if(e.RemovedItems.OfType<FileSession>().FirstOrDefault() is { } previous){previous.SearchText=Search.Text;previous.SourceMode=sourceMode;}
+        if(!tabContentPending&&e.RemovedItems.OfType<FileSession>().FirstOrDefault() is { } previous){previous.SearchText=Search.Text;previous.SourceMode=sourceMode;}
+        int generation=++tabLoadGeneration;var selected=Session;
+        ConfigDocument? prepared=incomingTabDocument is {} incoming&&incoming.Session==selected?incoming.Document:null;
+        if(prepared!=null)incomingTabDocument=null;
+        if(deferTransferredTabLoad)
+        {
+            tabContentPending=true;revision++;document=null;
+            if(selected!=null)ShowTabLoading(selected);
+            // Let the new window and its loading state paint before assigning a large source text.
+            await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.Background);
+            if(generation!=tabLoadGeneration||selected!=Session||!IsLoaded)return;
+        }
+        try
+        {
         switching=true;sourceMode=Session?.SourceMode??false;
         Source.Text=Session?.Text??"";Source.IsUndoEnabled=false;Source.IsUndoEnabled=true;CsvHeader.IsChecked=Session?.CsvHeader??false;CsvSeparator.SelectedIndex=Session?.Separator=='\t'?1:Session?.Separator==';'?2:0;Search.Text=Session?.SearchText??"";SearchPanel.Visibility=Search.Text.Length>0?Visibility.Visible:Visibility.Collapsed;switching=false;
-        await Parse();
+        await Parse(false,prepared);
+        }
+        finally { if(generation==tabLoadGeneration)HideTabLoading(); }
     }
     private Exception? syntaxError;
-    private async Task Parse(bool preserveViewport = false)
+    private async Task Parse(bool preserveViewport = false,ConfigDocument? preparedDocument=null)
     {
         syntaxError=null;parseTimer.Stop();var s=Session;int rev=++revision;
         var scrolls=new List<(ScrollViewer View,double X,double Y)>();
@@ -122,12 +137,22 @@ public partial class MainWindow : Window
         string text=s.Text;Message.Text="구조를 읽는 중…";
         try
         {
-            var parsed=await Task.Run(()=>new ConfigDocument(text,s.Format,s.Separator));
-            if(rev!=revision||s!=Session)return;document=parsed;
-            var oldValues=new Dictionary<string,string>();
-            try{foreach(var n in new ConfigDocument(s.SavedText,s.Format,s.Separator).All)oldValues.TryAdd(n.Path,n.Value);}catch{ }
-            foreach(var n in parsed.All){n.Open=!s.Collapsed.Contains(n.Path);n.State=n.ReadOnly?"원문 편집":oldValues.TryGetValue(n.Path,out var old)&&old==n.Value?"":s.Dirty?"변경":"";}
-            foreach(var n in parsed.All){for(var p=n;p!=null;p=p.Parent)if(s.PendingDeletes.Contains(p.Path)){n.PendingDelete=true;n.State="삭제 예정";break;}}
+            bool reuse=preparedDocument!=null&&preparedDocument.Text==text&&preparedDocument.Format==s.Format&&preparedDocument.Separator==s.Separator;
+            var savedText=s.SavedText;var format=s.Format;var separator=s.Separator;
+            var result=reuse?(Parsed:preparedDocument!,Saved:new Dictionary<string,string>()):await Task.Run(()=>
+            {
+                var parsed=new ConfigDocument(text,format,separator);var saved=new Dictionary<string,string>();
+                try{foreach(var n in new ConfigDocument(savedText,format,separator).All)saved.TryAdd(n.Path,n.Value);}catch{ }
+                return(Parsed:parsed,Saved:saved);
+            });
+            // OLE keeps pumping Dispatcher callbacks: do not rebuild a large view mid-drag.
+            while(activeTabDrags>0&&rev==revision&&s==Session)await Task.Delay(30);
+            if(rev!=revision||s!=Session)return;var parsed=result.Parsed;document=parsed;
+            if(!reuse)
+            {
+                foreach(var n in parsed.All){n.Open=!s.Collapsed.Contains(n.Path);n.State=n.ReadOnly?"원문 편집":result.Saved.TryGetValue(n.Path,out var old)&&old==n.Value?"":s.Dirty?"변경":"";}
+                foreach(var n in parsed.All){for(var p=n;p!=null;p=p.Parent)if(s.PendingDeletes.Contains(p.Path)){n.PendingDelete=true;n.State="삭제 예정";break;}}
+            }
             Message.Text=s.Format=="INI"?"INI: 전체 줄 주석 지원 · 인라인 ;/#는 값으로 처리합니다.":s.Format=="YAML"?"YAML: 기본 1.2 표기 · 앵커·별칭·블록 문자열은 원문 편집을 사용하세요.":"값 더블클릭/Enter · F2 Key 변경 · ⋯ 메뉴 · Ctrl+S 저장";
             Populate();
             if(preserveViewport)
@@ -316,7 +341,7 @@ public partial class MainWindow : Window
     {
         if(s==null)return false;if(inlineBox!=null&&!CommitInline())return false;if(s.Input!=null&&FindFocusedCsv()==null){Message.Text="미적용 입력을 복원하거나 취소한 뒤 저장하세요.";return false;}if(s.Draft!=null){try{if(s!=Session)return false;var added=BuildAddDraft();if(added==null)return false;s.Change(added);s.Draft=null;switching=true;Source.Text=added;switching=false;document=new ConfigDocument(s.Text,s.Format,s.Separator);}catch(Exception ex){Error(ex);return false;}}if(s==Session&&!Csv.CommitEdit(DataGridEditingUnit.Cell,true))return false;string? path=s.FilePath;
         if(path==null||saveAs){var d=new SaveFileDialog{FileName=path==null?"configuration."+s.Format.ToLowerInvariant():Path.GetFileName(path),Filter=$"{s.Format}|*.{s.Format.ToLowerInvariant()}",OverwritePrompt=true};if(d.ShowDialog(this)!=true)return false;path=d.FileName;}
-        try{if(sessions.Any(other=>other!=s&&string.Equals(other.FilePath,Path.GetFullPath(path),StringComparison.OrdinalIgnoreCase)))throw new IOException("다른 탭에서 열려 있는 파일입니다. 그 탭을 닫거나 다른 경로를 선택하세요.");s.Save(path);s.CompleteStructure();SyncStructure();Populate();RememberFile(path);UpdateStatus();Message.Text="저장했습니다. 숨김 백업은 앱 정상 종료 시 정리됩니다.";return true;}catch(Exception ex){Error(ex);return false;}
+        try{if(sessions.Any(other=>other!=s&&string.Equals(other.FilePath,Path.GetFullPath(path),StringComparison.OrdinalIgnoreCase)))throw new IOException("다른 탭에서 열려 있는 파일입니다. 그 탭을 닫거나 다른 경로를 선택하세요.");if(!SaveWithExternalCheck(s,path))return false;s.CompleteStructure();SyncStructure();Populate();RememberFile(path);UpdateStatus();Message.Text="저장했습니다. 숨김 백업은 앱 정상 종료 시 정리됩니다.";return true;}catch(Exception ex){Error(ex);return false;}
     }
     private bool MayClose(FileSession s){if(!s.Dirty)return true;var result=MessageBox.Show(this,s.Title+"\n변경 내용을 저장할까요?","저장 확인",MessageBoxButton.YesNoCancel);return result==MessageBoxResult.No||result==MessageBoxResult.Yes&&Save(s,false);}
     private void CloseTab(object sender,RoutedEventArgs e){e.Handled=true;if((sender as FrameworkElement)?.DataContext is FileSession s&&MayClose(s)){sessions.Remove(s);if(Files.SelectedItem==null&&sessions.Count>0)Files.SelectedIndex=0;try{Checkpoint();}catch(Exception ex){Error(ex);}}}

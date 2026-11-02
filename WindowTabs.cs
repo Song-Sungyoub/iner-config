@@ -12,6 +12,12 @@ public partial class MainWindow
     private Point tabDragStart;
     private FileSession? draggedTab;
     private bool tabDragCancelled;
+    private static int activeTabDrags;
+    private TabDragPreview? tabDragPreview;
+    private bool deferTransferredTabLoad,tabContentPending;
+    private int tabLoadGeneration;
+    private (FileSession Session,ConfigDocument Document)? incomingTabDocument;
+    private Border? tabLoadingOverlay;
     private static readonly SemaphoreSlim openGate = new(1, 1);
     internal static IEnumerable<MainWindow> Editors => Application.Current.Windows.OfType<MainWindow>();
     internal void BringForward()
@@ -21,12 +27,18 @@ public partial class MainWindow
     }
     private void TabMouseDown(object sender, MouseButtonEventArgs e)
     {
+        if(ReferenceEditor!=null)return;
         draggedTab = Find<Button>(e.OriginalSource as DependencyObject) == null
             ? Find<TabItem>(e.OriginalSource as DependencyObject)?.DataContext as FileSession : null;
         tabDragStart = e.GetPosition(Files);
-        if (draggedTab != null) { Files.SelectedItem = draggedTab; Files.CaptureMouse(); }
+        // Do not select/parse a different large file just to start dragging its header.
+        if (draggedTab != null) { Files.CaptureMouse();e.Handled=true; }
     }
-    private void TabMouseUp(object sender, MouseButtonEventArgs e) { draggedTab = null; Files.ReleaseMouseCapture(); }
+    private void TabMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        var tab=draggedTab;draggedTab=null;Files.ReleaseMouseCapture();
+        if(tab!=null&&sessions.Contains(tab)){Files.SelectedItem=tab;e.Handled=true;}
+    }
     private void TabMouseMove(object sender, MouseEventArgs e)
     {
         if (e.LeftButton != MouseButtonState.Pressed || draggedTab == null) return;
@@ -35,20 +47,43 @@ public partial class MainWindow
         var tab = draggedTab; draggedTab = null; tabDragCancelled = false;
         Files.ReleaseMouseCapture();
         var data = new DataObject(); data.SetData(typeof(FileSession), tab);
-        var effect = DragDrop.DoDragDrop(Files, data, DragDropEffects.Move);
-        FinishTabDrag(tab, effect);
+        activeTabDrags++;
+        try
+        {
+            tabDragPreview=new TabDragPreview(tab.Title,tab.Format);
+            UpdateTabDragPreview();
+            var effect = DragDrop.DoDragDrop(Files, data, DragDropEffects.Move);
+            FinishTabDrag(tab, effect);
+        }
+        finally { tabDragPreview?.Close();tabDragPreview=null;activeTabDrags--; }
+    }
+    private void UpdateTabDragPreview()
+    {
+        if(tabDragPreview==null||!GetCursorPos(out var point))return;
+        bool overTabs=Editors.Any(w=>IsOverTabStrip(w,new Point(point.X,point.Y)));
+        if(overTabs){tabDragPreview.Hide();return;}
+        if(!tabDragPreview.IsVisible)tabDragPreview.Show();
+        tabDragPreview.Follow(point.X,point.Y);
+    }
+    private static bool IsOverTabStrip(MainWindow window,Point screen)
+    {
+        if(!window.IsVisible||window.WindowState==WindowState.Minimized||!window.Files.IsVisible||PresentationSource.FromVisual(window.Files)==null)return false;
+        return new Rect(window.Files.RenderSize).Contains(window.Files.PointFromScreen(screen));
     }
     private void FinishTabDrag(FileSession tab, DragDropEffects effect)
     {
         // A successful merge can close this window inside the OLE drag loop.
-        if (effect != DragDropEffects.None || tabDragCancelled || !sessions.Contains(tab) || PresentationSource.FromVisual(Files) == null) return;
+        if (effect != DragDropEffects.None || tabDragCancelled || ReferenceEditor!=null || !sessions.Contains(tab) || PresentationSource.FromVisual(Files) == null) return;
         // WPF's cached mouse position can still point to the tab after the OLE drag loop returns.
-        var point = GetCursorPos(out var screen) ? Files.PointFromScreen(new Point(screen.X, screen.Y)) : tabDragStart;
-        if (!new Rect(Files.RenderSize).Contains(point)) DetachTab(tab);
+        if(!GetCursorPos(out var screen))return;
+        var point=new Point(screen.X,screen.Y);
+        // A busy destination may reject a drop. Do not turn that rejection into a new window.
+        if(!Editors.Any(w=>IsOverTabStrip(w,point)))DetachTab(tab,point);
     }
     private void TabDragContinue(object sender, QueryContinueDragEventArgs e)
     {
-        if (e.EscapePressed || (e.KeyStates & DragDropKeyStates.RightMouseButton) != 0) tabDragCancelled = true;
+        if (e.EscapePressed || (e.KeyStates & DragDropKeyStates.RightMouseButton) != 0) {tabDragCancelled = true;tabDragPreview?.Hide();}
+        else UpdateTabDragPreview();
     }
     private void TabDragOver(object sender, DragEventArgs e)
     {
@@ -68,33 +103,56 @@ public partial class MainWindow
         var before = Find<TabItem>(e.OriginalSource as DependencyObject)?.DataContext as FileSession;
         var index = before == null ? sessions.Count : sessions.IndexOf(before);
         if (before != null && Find<TabItem>(e.OriginalSource as DependencyObject) is { } item && e.GetPosition(item).X > item.ActualWidth / 2) index++;
-        MoveTabHere(tab, index); e.Effects = DragDropEffects.Move; e.Handled = true;
+        e.Effects = MoveTabHere(tab, index)?DragDropEffects.Move:DragDropEffects.None; e.Handled = true;
     }
-    private void MoveTabHere(FileSession tab, int index)
+    private bool MoveTabHere(FileSession tab, int index)
     {
         var owner = Editors.FirstOrDefault(w => w.sessions.Contains(tab));
-        if (owner == null || owner.ReferenceEditor!=null || ReferenceEditor!=null) return;
+        if (owner == null || owner.ReferenceEditor!=null || ReferenceEditor!=null) return false;
         if (owner == this)
         {
             var old = sessions.IndexOf(tab); if (index > old) index--;
-            sessions.Move(old, Math.Clamp(index, 0, sessions.Count - 1)); Files.SelectedItem = tab; return;
+            sessions.Move(old, Math.Clamp(index, 0, sessions.Count - 1)); Files.SelectedItem = tab; return true;
         }
         // Move the original session so unsaved text, disk fingerprint, encoding and history stay intact.
-        if (owner.Session == tab) { tab.SearchText = owner.Search.Text; tab.SourceMode = owner.sourceMode; }
-        sessions.Insert(Math.Clamp(index, 0, sessions.Count), tab); Files.SelectedItem = tab;
-        owner.sessions.Remove(tab);
+        if (owner.Session == tab&&!owner.tabContentPending) { owner.CaptureCellInput();tab.SearchText = owner.Search.Text; tab.SourceMode = owner.sourceMode; }
+        if(owner.Session==tab&&owner.document is {} parsed&&parsed.Text==tab.Text&&parsed.Format==tab.Format&&parsed.Separator==tab.Separator)incomingTabDocument=(tab,parsed);
+        deferTransferredTabLoad=owner.deferTransferredTabLoad=true;
+        try
+        {
+            sessions.Insert(Math.Clamp(index, 0, sessions.Count), tab); Files.SelectedItem = tab;
+            owner.sessions.Remove(tab);
+        }
+        finally { deferTransferredTabLoad=owner.deferTransferredTabLoad=false; }
         if (owner.sessions.Count == 0)
         {
-            try { Checkpoint(); }catch(Exception ex){Error(ex);return;}
+            try { Checkpoint(); }catch(Exception ex){Message.Text="탭은 이동했지만 복원본을 저장하지 못했습니다: "+ex.Message;workspacePending=true;return true;}
             if (Application.Current.MainWindow == owner) Application.Current.MainWindow = this;
             owner.Close();
         }
         BringForward();
+        return true;
     }
-    private void DetachTab(FileSession tab)
+    private void DetachTab(FileSession tab,Point? screenPoint=null)
     {
+        if(!sessions.Contains(tab)||ReferenceEditor!=null)return;
         var target = new MainWindow { WindowStartupLocation = WindowStartupLocation.Manual, Left = Left + 32, Top = Top + 32 };
-        target.editorView = editorView; target.SetZoom(zoomPercent); target.Show(); target.MoveTabHere(tab, 0);
+        target.editorView = editorView;target.stageWidths.AddRange(stageWidths);target.SetZoom(zoomPercent);target.Show();
+        if(screenPoint is {} point)TabDragPreview.Place(target,(int)point.X-40,(int)point.Y-20);
+        if(!target.MoveTabHere(tab,0)){target.closingForUpdate=true;target.Close();}
+    }
+    private void ShowTabLoading(FileSession tab)
+    {
+        tabLoadingOverlay??=new Border{Child=new TextBlock{HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center,FontSize=16,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(24)}};
+        ((TextBlock)tabLoadingOverlay.Child).Text=tab.Title+"\n문서를 여는 중…";
+        tabLoadingOverlay.SetResourceReference(Border.BackgroundProperty,"Surface");tabLoadingOverlay.SetResourceReference(ForegroundProperty,"Text");
+        Panel.SetZIndex(tabLoadingOverlay,20);if(!EditorArea.Children.Contains(tabLoadingOverlay))EditorArea.Children.Add(tabLoadingOverlay);
+        EditorArea.Visibility=Visibility.Visible;EmptyState.Visibility=Visibility.Collapsed;EditorArea.IsEnabled=false;
+    }
+    private void HideTabLoading()
+    {
+        if(tabLoadingOverlay!=null)EditorArea.Children.Remove(tabLoadingOverlay);
+        EditorArea.IsEnabled=true;tabContentPending=false;
     }
     private void TabContextMenu(object sender, MouseButtonEventArgs e)
     {
@@ -142,11 +200,11 @@ public partial class MainWindow
         SelectNode(document!.All.First(n=>n.Name=="host"),false);Search.Text="host";sourceMode=true;SetView();
         var path=tab.SelectedPath;
         DetachTab(tab);
-        var target=Editors.Single(w=>w!=this&&w.sessions.Contains(tab));await target.Parse();
+        var target=Editors.Single(w=>w!=this&&w.sessions.Contains(tab));await target.WaitForTabLoad();
         if(sessions.Contains(tab)||target.Session!=tab||!tab.Dirty||!tab.CanUndo||target.Search.Text!="host"||!target.sourceMode||tab.SelectedPath!=path)throw new Exception("Tab detach state");
         await OpenPathAsync(file);
         if(sessions.Count!=count||target.sessions.Count!=1)throw new Exception("Duplicate open across windows");
-        MoveTabHere(tab,0);await Parse();
+        MoveTabHere(tab,0);await WaitForTabLoad();
         if(PresentationSource.FromVisual(target.Files)!=null)throw new Exception("Merged source window still connected");
         target.FinishTabDrag(tab,DragDropEffects.Move);
         target.FinishTabDrag(tab,DragDropEffects.None);

@@ -21,14 +21,14 @@ public partial class MainWindow
         };
         Files.SelectionChanged+=(_,_)=>workspacePending=true;Search.TextChanged+=(_,_)=>workspacePending=true;
         Tree.SelectionChanged+=(_,_)=>workspacePending=true;
-        workspaceTimer.Tick+=(_,_)=> { if(Workspace==null||!workspacePending)return;try { Checkpoint(); }catch(Exception ex){Message.Text="작업 복원본을 저장하지 못했습니다: "+ex.Message;} };
+        workspaceTimer.Tick+=(_,_)=> { if(Workspace==null||!workspacePending||activeTabDrags>0)return;try { Checkpoint(); }catch(Exception ex){Message.Text="작업 복원본을 저장하지 못했습니다: "+ex.Message;} };
         Loaded+=(_,_)=>workspaceTimer.Start();Closed+=(_,_)=>workspaceTimer.Stop();
     }
     internal void Checkpoint()
     {
         if(Workspace==null)return;
-        CaptureCellInput();
-        if(Session!=null) { Session.SearchText=Search.Text;Session.SourceMode=sourceMode; }
+        if(!tabContentPending)CaptureCellInput();
+        if(Session!=null&&!tabContentPending) { Session.SearchText=Search.Text;Session.SourceMode=sourceMode; }
         Workspace.SaveWindow(new(2,workspaceId,Files.SelectedIndex,sessions.Select(s=>s.Capture()).ToList()));
         workspacePending=false;
     }
