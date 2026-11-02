@@ -128,7 +128,7 @@ public partial class MainWindow : Window
             try{foreach(var n in new ConfigDocument(s.SavedText,s.Format,s.Separator).All)oldValues.TryAdd(n.Path,n.Value);}catch{ }
             foreach(var n in parsed.All){n.Open=!s.Collapsed.Contains(n.Path);n.State=n.ReadOnly?"원문 편집":oldValues.TryGetValue(n.Path,out var old)&&old==n.Value?"":s.Dirty?"변경":"";}
             foreach(var n in parsed.All){for(var p=n;p!=null;p=p.Parent)if(s.PendingDeletes.Contains(p.Path)){n.PendingDelete=true;n.State="삭제 예정";break;}}
-            Message.Text=s.Format=="INI"?"INI: 전체 줄 주석 지원 · 인라인 ;/#는 값으로 처리합니다.":s.Format=="YAML"?"YAML: 기본 1.2 표기 · 앵커·별칭·블록 문자열은 원문 편집을 사용하세요.":"값 더블클릭 · F2 수정 · ⋯ 메뉴 · Ctrl+S 저장";
+            Message.Text=s.Format=="INI"?"INI: 전체 줄 주석 지원 · 인라인 ;/#는 값으로 처리합니다.":s.Format=="YAML"?"YAML: 기본 1.2 표기 · 앵커·별칭·블록 문자열은 원문 편집을 사용하세요.":"값 더블클릭/Enter · F2 Key 변경 · ⋯ 메뉴 · Ctrl+S 저장";
             Populate();
             if(preserveViewport)
             {
@@ -231,12 +231,12 @@ public partial class MainWindow : Window
     private void SelectionChanged(object sender,SelectionChangedEventArgs e){if(Tree.SelectedItem is ConfigNode n)SelectNode(n,false);}
     private async Task Apply(string text)
     {if(Session==null)return;string? path=(Tree.SelectedItem as ConfigNode)?.Path;Session.Change(text);switching=true;Source.Text=text;switching=false;await Parse(true);if(path!=null&&document!=null){Tree.SelectedItem=document.All.FirstOrDefault(n=>n.Path==path);if(Tree.SelectedItem is ConfigNode selected)SelectNode(selected,false);}}
-    private void EditDoubleClick(object sender,MouseButtonEventArgs e){if(inlineEnabled)return;if(Tree.SelectedItem is ConfigNode {Kind:"Add"} add){OpenAddPalette(add.Parent!,Tree);return;}if(Find<Button>(e.OriginalSource as DependencyObject)!=null||Find<CheckBox>(e.OriginalSource as DependencyObject)!=null||Find<ComboBox>(e.OriginalSource as DependencyObject)!=null)return;if(Tree.SelectedItem is ConfigNode n)Edit(n);}
+    private void EditDoubleClick(object sender,MouseButtonEventArgs e){if(inlineEnabled||Session?.StructureEditing==true)return;if(Tree.SelectedItem is ConfigNode {Kind:"Add"} add){OpenAddPalette(add.Parent!,Tree);return;}if(Find<Button>(e.OriginalSource as DependencyObject)!=null||Find<CheckBox>(e.OriginalSource as DependencyObject)!=null||Find<ComboBox>(e.OriginalSource as DependencyObject)!=null)return;if(Tree.SelectedItem is ConfigNode n)Edit(n);}
     private void EditCsv(object sender,MouseButtonEventArgs e){Csv.BeginEdit();}
     private ConfigNode? CsvNode(){int row=Csv.Items.IndexOf(Csv.CurrentCell.Item),column=Csv.CurrentCell.Column?.DisplayIndex??-1;return row>=0&&row<csvRows.Count&&column>=0&&column<csvRows[row].Children.Count?csvRows[row].Children[column]:null;}
     private async void Edit(ConfigNode n,bool typeChange=false,bool forcePopup=false)
     {
-        if(inlineEnabled&&!typeChange&&!forcePopup&&Session?.Format!="CSV"){BeginInline(n);return;}
+        if((inlineEnabled||Session?.StructureEditing==true)&&!typeChange&&!forcePopup&&Session?.Format!="CSV"){BeginInline(n);return;}
         if(ReferenceEditor!=null||Session?.RawEditing==true)return;
         if(document==null||!n.Editable){GoSource(n);return;}var originalDocument=document;var originalSession=Session;var originalText=Session?.Text;var d=new EditDialog(this,typeChange?"자료형 변경":n.Kind=="Comment"?"주석 수정":"값 수정",n.Path,n.Value,n.DisplayKind,typeChange&&Session?.Format is "JSON" or "YAML"?new[]{"String","Number","Boolean","Null"}:null);
         if(Session?.Input is {} pending&&pending.Path==n.Path&&pending.Baseline==Session.Text)d.ValueBox.Text=pending.Text;
@@ -340,13 +340,15 @@ public partial class MainWindow : Window
     private void Keys(object sender,KeyEventArgs e)
     {
         if(ReferenceEditor!=null){e.Handled=true;return;}
+        if(EditorArea.IsKeyboardFocusWithin&&KeyboardTypeKeys(e,Keyboard.Modifiers)){e.Handled=true;return;}
+        if(EditorArea.IsKeyboardFocusWithin&&KeyboardStructureKeys(e,Keyboard.Modifiers)){e.Handled=true;return;}
         if(InlineKeys(e)){e.Handled=true;return;}
         if(inlineBox!=null)return;
         if(Csv.IsKeyboardFocusWithin&&Find<TextBox>(e.OriginalSource as DependencyObject)!=null&&e.Key is Key.Z or Key.Y)return;
         if(Keyboard.Modifiers==ModifierKeys.Control)
         {if(e.Key is Key.D0 or Key.NumPad0){SetZoom(100);e.Handled=true;}else if(e.Key is Key.OemPlus or Key.Add){SetZoom(zoomPercent+10);e.Handled=true;}else if(e.Key is Key.OemMinus or Key.Subtract){SetZoom(zoomPercent-10);e.Handled=true;}else if(e.Key==Key.O){OpenFile(this,new());e.Handled=true;}else if(e.Key==Key.S){Save(Session,false);e.Handled=true;}else if(e.Key==Key.F){OpenSearch();e.Handled=true;}else if(e.Key==Key.Z&&!Source.IsKeyboardFocusWithin){Undo(this,new());e.Handled=true;}else if(e.Key==Key.Y&&!Source.IsKeyboardFocusWithin){Redo(this,new());e.Handled=true;}}
         else if(e.Key==Key.Escape&&SearchPanel.Visibility==Visibility.Visible){CloseSearch(this,new());e.Handled=true;}
-        else if(e.Key==Key.F2&&!Csv.IsKeyboardFocusWithin&&Tree.SelectedItem is ConfigNode n){Edit(n);e.Handled=true;}
+        else if(e.Key==Key.Enter&&!Csv.IsKeyboardFocusWithin&&EditorArea.IsKeyboardFocusWithin&&Tree.SelectedItem is ConfigNode n){Edit(n);e.Handled=true;}
     }
     private void LightTheme(object sender,RoutedEventArgs e)=>SetTheme(false);
     private void DarkTheme(object sender,RoutedEventArgs e)=>SetTheme(true);
@@ -370,6 +372,7 @@ public partial class MainWindow : Window
     {
         closingForUpdate=true;inlineEnabled=false;Directory.CreateDirectory(output);
         await TestNewFiles();
+        await TestKeyboardEditing(output);
         await TestScripts(output);
         await TestInline(output);
         await TestStructureUi(output);

@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 namespace InerConfig;
-public sealed record PendingInput(string Path,string Text,string Baseline,string Kind);
+public sealed record PendingInput(string Path,string Text,string Baseline,string Kind,bool KeyEditing=false);
 public sealed partial class FileSession { public PendingInput? Input {get;set;} }
 public partial class MainWindow
 {
@@ -21,6 +21,6 @@ public partial class MainWindow
             var dialog=new EditDialog(this,"복원 입력 확인","기준 문서가 달라 자동 적용할 수 없습니다. 내용을 복사한 뒤 적용을 누르면 초안만 정리합니다.",pending.Text,"String");
             if(dialog.ShowDialog()==true){Session.Input=null;Session.Notify();SyncStructure();}return;}
         var node=document.All.FirstOrDefault(n=>n.Path==pending.Path);
-        if(node!=null)Edit(node);
+        if(node!=null){if(pending.KeyEditing)BeginInlineKey(node);else Edit(node);}
     }
 }

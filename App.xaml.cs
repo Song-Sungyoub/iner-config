@@ -40,7 +40,7 @@ public partial class App : Application
             catch (Exception ex) { System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory,"self-test-error.txt"), ex.ToString()); Shutdown(1); }
             return;
         }
-        if (!e.Args.Contains("--ui-test"))
+        if (!e.Args.Contains("--ui-test")&&!e.Args.Contains("--keyboard-test"))
         {
             instance = new InstanceService();
             if (!instance.IsPrimary)
@@ -54,9 +54,9 @@ public partial class App : Application
         MainWindow = window;
         window.Show();
 
-        if(e.Args.Length==2&&e.Args[0]=="--ui-test")
+        if(e.Args.Length==2&&e.Args[0] is "--ui-test" or "--keyboard-test")
         {
-            try{await window.RunUiTest(e.Args[1]);Shutdown(0);}catch(Exception ex){System.IO.Directory.CreateDirectory(e.Args[1]);System.IO.File.WriteAllText(System.IO.Path.Combine(e.Args[1],"ui-test-error.txt"),ex.ToString());Shutdown(1);}return;
+            try{if(e.Args[0]=="--keyboard-test")await window.RunKeyboardTest(e.Args[1]);else await window.RunUiTest(e.Args[1]);Shutdown(0);}catch(Exception ex){System.IO.Directory.CreateDirectory(e.Args[1]);System.IO.File.WriteAllText(System.IO.Path.Combine(e.Args[1],"ui-test-error.txt"),ex.ToString());Shutdown(1);}return;
         }
         var recoveryWarnings=new List<string>();
         try

@@ -189,7 +189,7 @@ public partial class MainWindow
         {
             if (Find<Button>(e.OriginalSource as DependencyObject) != null || Find<CheckBox>(e.OriginalSource as DependencyObject) != null || Find<ComboBox>(e.OriginalSource as DependencyObject) != null) return;
             SelectNode(node, false);
-            if (e.ClickCount == 2 && !inlineEnabled) { Edit(node); e.Handled = true; }
+            if (e.ClickCount == 2 && !inlineEnabled && Session?.StructureEditing!=true) { Edit(node); e.Handled = true; }
         };
         border.PreviewMouseRightButtonDown += (_, _) => SelectNode(node, false);
         border.ContextMenu = new ContextMenu(); border.ContextMenuOpening += (_, _) => border.ContextMenu = MakeMenu(node);
@@ -199,7 +199,7 @@ public partial class MainWindow
     internal FrameworkElement CreateTypePicker(ConfigNode node)
     {
         if(node.Kind=="Add")return new TextBlock();
-        string[] choices = !node.Editable || Session?.RawEditing==true ? [] : Session?.Format is "JSON" or "YAML" ? ["String","Number","Boolean","Null"] : node.XmlValue!=null ? ["String","CDATA"] : [];
+        string[] choices = TypeChoices(node);
         if(choices.Length==0)
         {
             var label=new TextBlock { Text=node.DisplayKind, FontSize=11, TextTrimming=TextTrimming.CharacterEllipsis, ToolTip=node.Group?"구조 자료형": "이 항목의 자료형은 고정입니다." };
