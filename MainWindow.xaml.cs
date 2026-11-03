@@ -153,7 +153,7 @@ public partial class MainWindow : Window
                 foreach(var n in parsed.All){n.Open=!s.Collapsed.Contains(n.Path);n.State=n.ReadOnly?"원문 편집":result.Saved.TryGetValue(n.Path,out var old)&&old==n.Value?"":s.Dirty?"변경":"";}
                 foreach(var n in parsed.All){for(var p=n;p!=null;p=p.Parent)if(s.PendingDeletes.Contains(p.Path)){n.PendingDelete=true;n.State="삭제 예정";break;}}
             }
-            Message.Text=s.Format=="INI"?"INI: 전체 줄 주석 지원 · 인라인 ;/#는 값으로 처리합니다.":s.Format=="YAML"?"YAML: 기본 1.2 표기 · 앵커·별칭·블록 문자열은 원문 편집을 사용하세요.":"값 더블클릭/Enter · F2 Key 변경 · ⋯ 메뉴 · Ctrl+S 저장";
+            Message.Text=s.Format=="INI"?"INI: 전체 줄 주석 지원 · 인라인 ;/#는 값으로 처리합니다.":s.Format=="YAML"?"YAML: 기본 1.2 표기 · 앵커·별칭·블록 문자열은 원문 편집을 사용하세요.":"값 한 번 클릭/Enter · F2 Key 변경 · ⋯ 메뉴 · Ctrl+S 저장";
             Populate();
             if(preserveViewport)
             {

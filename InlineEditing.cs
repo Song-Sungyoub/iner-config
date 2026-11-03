@@ -60,7 +60,7 @@ public partial class MainWindow
     }
     private void PositionInline()
     {
-        if((!inlineEnabled&&Session?.StructureEditing!=true&&!inlineKeyEditing)||sourceMode||Session?.Format=="CSV"||inlinePath==null){inlineFrame.Visibility=Visibility.Collapsed;return;}
+        if((!inlineEnabled&&Session?.StructureEditing!=true&&!inlineKeyEditing&&inlineBox==null)||sourceMode||Session?.Format=="CSV"||inlinePath==null){inlineFrame.Visibility=Visibility.Collapsed;return;}
         if(inlineSession!=null&&inlineSession!=Session){EndInline(false);return;}
         var anchor=InlineAnchor();
         double top=editorView==EditorView.Stages?Stage.ColumnHeaderHeight:editorView==EditorView.Tree?Tree.ColumnHeaderHeight:0;
@@ -85,9 +85,9 @@ public partial class MainWindow
         EditorArea.UpdateLayout();if(reveal&&InlineAnchor() is {} anchor){anchor.BringIntoView(new Rect(0,0,Math.Min(180,anchor.ActualWidth),anchor.ActualHeight));EditorArea.UpdateLayout();}PositionInline();
         if(inlineBox==null){if(editorView==EditorView.Tree)Tree.Focus();else if(editorView==EditorView.Stages)Stage.Focus();else Groups.Focus();}
     }
-    private void BeginInline(ConfigNode n,string? replacement=null,bool key=false)
+    private void BeginInline(ConfigNode n,string? replacement=null,bool key=false,bool direct=false)
     {
-        if((!inlineEnabled&&Session?.StructureEditing!=true&&!key)||(!key&&(n.Group||!n.Editable))||document==null||Session==null)return;
+        if((!inlineEnabled&&Session?.StructureEditing!=true&&!key&&!direct)||(!key&&(n.Group||!n.Editable))||document==null||Session==null)return;
         if(inlineBox!=null&&!CommitInline())return;
         n=document.All.FirstOrDefault(item=>item.Path==n.Path)??n;
         if(Session.Input is {} other&&(other.Path!=n.Path||other.Baseline!=Session.Text||other.KeyEditing!=key))
@@ -106,7 +106,7 @@ public partial class MainWindow
         inlineBox.PreviewKeyDown+=(_,e)=>{if(e.Key is Key.Enter or Key.Tab)e.Handled=true;};
         PositionInline();inlineBox.Focus();inlineBox.SelectAll();
         if(replacement!=null){inlineSession.Input=new(n.Path,replacement,inlineBaseline,n.Kind,key);inlineSession.Notify();inlineBox.CaretIndex=replacement.Length;}
-        Message.Text=key?"Key 편집 · Enter 값 편집 · ↑↓ Key 이동 · Esc 취소":"셀 편집 · ↑↓ 이전/다음 값 · Enter 다음 값 · Shift+Enter 이전 값 · Esc 취소 · Ctrl+S 저장";
+        Message.Text=key?"Key 편집 · Enter 다음 Key · ↑↓ Key 이동 · Tab 깊이 조절 · Esc 취소":"셀 편집 · ↑↓ 이전/다음 값 · Enter 다음 값 · Shift+Enter 이전 값 · Esc 취소 · Ctrl+S 저장";
     }
     private void EndInline(bool discard)
     {
@@ -145,7 +145,7 @@ public partial class MainWindow
     private void InlineMouse(object sender,MouseButtonEventArgs e)
     {
         CancelTypeChoice();
-        if((!inlineEnabled&&Session?.StructureEditing!=true&&!inlineKeyEditing)||ReferenceEditor!=null)return;
+        if(ReferenceEditor!=null)return;
         var origin=e.OriginalSource as DependencyObject;
         if(origin==null||inlineFrame.IsAncestorOf(origin)||origin==inlineFrame||Find<ScrollBar>(origin)!=null)return;
         if(inlineBox!=null&&Find<Button>(origin)==ContinueInputButton){inlineSuspended=false;RevealSelection();EditorArea.UpdateLayout();PositionInline();inlineBox.Focus();e.Handled=true;return;}
@@ -161,7 +161,7 @@ public partial class MainWindow
         if(e.ChangedButton==MouseButton.Left&&Find<Button>(origin)==null&&Find<CheckBox>(origin)==null&&Find<ComboBox>(origin)==null)
         {
             SelectInline(n,value,false);
-            if(e.ClickCount==2&&value){BeginInline(n);e.Handled=true;}
+            if(value&&!n.Group&&n.Editable){BeginInline(n,direct:true);e.Handled=true;}
         }
     }
     private static string? FindTagged(DependencyObject? node)
@@ -183,7 +183,7 @@ public partial class MainWindow
     private bool InlineKeys(KeyEventArgs e)=>InlineKeys(e,Keyboard.Modifiers);
     private bool InlineKeys(KeyEventArgs e,ModifierKeys modifiers)
     {
-        if((!inlineEnabled&&Session?.StructureEditing!=true&&!inlineKeyEditing)||ReferenceEditor!=null)return false;
+        if((!inlineEnabled&&Session?.StructureEditing!=true&&!inlineKeyEditing&&inlineBox==null)||ReferenceEditor!=null)return false;
         if(inlineBox!=null)
         {
             if(inlineComposing||e.Key==Key.ImeProcessed)return false;
@@ -197,16 +197,14 @@ public partial class MainWindow
                 if(e.Key is not (Key.O or Key.F or Key.D0 or Key.NumPad0 or Key.OemPlus or Key.Add or Key.OemMinus or Key.Subtract))return false;
                 if(!CommitInline())return true;
             }
-            else if(inlineKeyEditing&&e.Key==Key.Enter&&modifiers==ModifierKeys.None)
-            {if(CommitInline()&&InlineNode() is {} selected)BeginInline(selected);return true;}
-            else if(e.Key is Key.Enter or Key.Tab || (e.Key is Key.Up or Key.Down)&&modifiers==ModifierKeys.None)
+            else if(e.Key==Key.Enter&&(modifiers==ModifierKeys.None||modifiers==ModifierKeys.Shift) || (e.Key is Key.Up or Key.Down)&&modifiers==ModifierKeys.None)
             {
                 bool wasKey=inlineKeyEditing;var current=InlineNode();var next=current==null?null:NextInline(current,e.Key==Key.Up?-1:e.Key==Key.Down?1:modifiers.HasFlag(ModifierKeys.Shift)?-1:1);
                 if(!CommitInline())return true;
                 if(InlineNode() is {} selected)SelectInline(selected,inlineValue,false);
                 string? nextPath=next?.Path;if(wasKey&&current!=null&&nextPath?.StartsWith(current.Path+"/",StringComparison.Ordinal)==true)nextPath=inlinePath+nextPath[current.Path.Length..];
                 if(next!=null&&document?.All.FirstOrDefault(n=>n.Path==nextPath) is {} target&&Tree.Items.OfType<ConfigNode>().Any(n=>n.Path==target.Path))
-                {SelectInline(target);if(wasKey){if(target.KeyStart>=0)BeginInlineKey(target);}else if(target.Value.IndexOfAny(['\r','\n'])<0)BeginInline(target);}
+                {SelectInline(target);if(wasKey){if(target.KeyStart>=0)BeginInlineKey(target);}else if(target.Value.IndexOfAny(['\r','\n'])<0)BeginInline(target,direct:true);}
                 return true;
             }
             else return false;
@@ -216,7 +214,7 @@ public partial class MainWindow
         if(e.Key==Key.Enter){if(!node.Group)BeginInline(node);else if(node.Group)ToggleBranch(node,false);return true;}
         if(e.Key==Key.Space&&inlineValue&&node.Kind=="Boolean"){ToggleBool(new CheckBox{DataContext=node},new());return true;}
         if(modifiers!=ModifierKeys.None&&modifiers!=ModifierKeys.Shift)return false;
-        if(e.Key==Key.Tab){var next=NextInline(node,modifiers.HasFlag(ModifierKeys.Shift)?-1:1);if(next!=null)SelectInline(next);return true;}
+        if(e.Key==Key.Tab)return false;
         if(e.Key is Key.Left or Key.Right)
         {
             if(editorView==EditorView.Tree){if(!inlineValue&&node.Group&&node.Open==(e.Key==Key.Left))ToggleBranch(node,false);}

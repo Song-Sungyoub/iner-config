@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Controls;
 namespace InerConfig;
 
 public partial class MainWindow
@@ -34,8 +35,17 @@ public partial class MainWindow
             InlineKeys(Stroke(Key.Up),ModifierKeys.None);
             if(InlineNode()?.Name!="renamed"||!inlineKeyEditing)throw new Exception("Key up continuation "+view);
             InlineKeys(Stroke(Key.Enter),ModifierKeys.None);
-            if(inlineBox==null||inlineKeyEditing||inlineBox.Text!="2")throw new Exception("Key Enter switches to value "+view);
-            inlineBox.Text="22";
+            if(inlineBox==null||!inlineKeyEditing||InlineNode()?.Name!="last")throw new Exception("Key Enter continues keys "+view);
+            InlineKeys(Stroke(Key.Enter),ModifierKeys.Shift);
+            if(!inlineKeyEditing||InlineNode()?.Name!="renamed")throw new Exception("Shift Enter previous key "+view);
+            inlineBox!.Text="renamed2";
+            KeyboardStructureKeys(Stroke(Key.Tab),ModifierKeys.None);await Idle();
+            if(InlineNode()?.Parent?.Name!="group"||InlineNode()?.Name!="renamed2")throw new Exception("Tab commits key and indents "+view);
+            KeyboardStructureKeys(Stroke(Key.Tab),ModifierKeys.Shift);await Idle();
+            KeyboardStructureKeys(Stroke(Key.F2),ModifierKeys.None);
+            inlineBox!.Text="renamed";if(!CommitInline())throw new Exception("Restore key");
+            BeginInline(document!.All.First(n=>n.Name=="renamed"),direct:true);
+            inlineBox!.Text="22";
             KeyboardStructureKeys(Stroke(Key.Tab),ModifierKeys.None);await Idle();
             if(InlineNode()?.Parent?.Name!="group"||InlineNode()?.Value!="22")throw new Exception("Tab commits value and indents "+view+" "+Message.Text);
             KeyboardStructureKeys(Stroke(Key.Tab),ModifierKeys.Shift);await Idle();
@@ -52,9 +62,18 @@ public partial class MainWindow
             if(s.Text!=baseline)throw new Exception("Undo keyboard insertion "+view);
             s.Redo();await ShowSessionText();
             if(!s.Text.Contains("newKey"))throw new Exception("Redo keyboard insertion");
-            s.CancelStructure();sessions.Remove(s);inlinePath=null;
+            s.CancelStructure();await ShowSessionText();ChangeView(view,false);UpdateLayout();
+            var valueNode=document!.All.First(n=>n.Name=="last");SelectInline(valueNode);UpdateLayout();
+            var anchor=InlineAnchor()??throw new Exception("Single click value anchor "+view);
+            var click=new MouseButtonEventArgs(Mouse.PrimaryDevice,0,MouseButton.Left){RoutedEvent=Mouse.PreviewMouseDownEvent,Source=anchor};
+            InlineMouse(this,click);
+            if(inlineBox==null||inlineKeyEditing||inlineBox.Text!="3"||!click.Handled)throw new Exception("Single click value without beta/structure "+view);
+            inlineBox.Text="33";InlineKeys(Stroke(Key.Up),ModifierKeys.None);
+            if(!s.Text.Contains("33")||inlineBox==null||inlineKeyEditing)throw new Exception("Single click value continuation "+view);
+            InlineKeys(Stroke(Key.Escape),ModifierKeys.None);
+            sessions.Remove(s);inlinePath=null;
         }
         inlineEnabled=wasEnabled;
-        File.WriteAllText(Path.Combine(output,"keyboard-test-result.txt"),"PASS: A/B/C F2 key editing, duplicate protection, up/down key continuation, Enter value, Tab commit/indent, Shift+Tab outdent, Ctrl+Enter sibling placement, draft recovery, undo/redo; structure mode required.");
+        File.WriteAllText(Path.Combine(output,"keyboard-test-result.txt"),"PASS: A/B/C F2 key editing, duplicate protection, up/down key continuation, Enter/Shift+Enter key continuation, single-click values without beta, Tab key/value commit/indent, Shift+Tab outdent, Ctrl+Enter sibling placement, draft recovery, undo/redo; structure mode required.");
     }
 }

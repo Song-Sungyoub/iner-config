@@ -126,7 +126,6 @@ public partial class MainWindow
         bool level=e.Key==Key.Tab&&(modifiers==ModifierKeys.None||modifiers==ModifierKeys.Shift)&&Session.StructureEditing;
         if(!add&&!rename&&!level)return false;
         if(keyboardStructureBusy)return true;
-        if(rename&&inlineSuspended)return false;
         if(Session.Format=="CSV")
         {
             if(add){if(FindFocusedCsv()!=null&&!Csv.CommitEdit(System.Windows.Controls.DataGridEditingUnit.Cell,true))return true;AddCsvRow();return true;}
@@ -170,7 +169,7 @@ public partial class MainWindow
             if(Session!=session)return;
             var target=document?.All.FirstOrDefault(n=>n.Path==result.Path);
             if(target!=null){SelectInline(target,!add);if(add){if(target.KeyStart>=0)BeginInlineKey(target);else BeginInline(target);}}
-            Message.Text=add?"항목 추가 · F2 Key · Enter 값 · Tab 자식 · Shift+Tab 상위 단계 · Ctrl+Z 취소":"단계 변경 · Ctrl+Z 취소";
+            Message.Text=add?"항목 추가 · F2 Key · Enter 다음 Key · Tab 자식 · Shift+Tab 상위 단계 · Ctrl+Z 취소":"단계 변경 · Ctrl+Z 취소";
         }
         catch(Exception ex){Message.Text=ex.Message;}
         finally{keyboardStructureBusy=false;}
